@@ -1,3 +1,8 @@
 build
 obj
 .vscode
+
+
+# Added by cargo
+
+/target
