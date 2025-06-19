@@ -8,7 +8,7 @@ CFLAGS = -Wall -Wextra -I$(INCLUDE_DIR)
 
 SRCS = $(wildcard src/*.c)
 OBJS = $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(SRCS))
-TARGET = $(BUILD_DIR)/app
+TARGET = $(BUILD_DIR)/yash
 
 all: $(TARGET)
 

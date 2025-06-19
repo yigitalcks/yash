@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include <err.h>
 #include <pwd.h>
+#include <ctype.h>
 
 #define MAX_NUMBER_OF_PATH 32
 #define MAX_PATH_LENGTH 256
@@ -28,11 +29,37 @@ static const int num_builtins = ARRAY_LEN(builtins);
 
 int tokenize(char* input, char* argv[]) {
     int argc = 0;
-    char* token = strtok(input, " ");
-    while(token != NULL && argc < MAX_NUM_ARGS) {
-        argv[argc++] = token;
-        token = strtok(NULL, " ");
+    char* p = input;
+
+    while (*p != '\0') {
+        while (isspace((unsigned char)*p)) {
+            p++;
+        }
+        if (*p == '\0') {
+            break;
+        }
+
+        argv[argc++] = p;
+
+        int is_sq = 0;
+        while (*p != '\0') {
+            if(*p == '\'') {
+                is_sq = !is_sq;
+                memmove(p, p + 1, strlen(p + 1) + 1);
+                continue;
+            }
+            if(!is_sq && isspace((unsigned char)*p)) {
+                break;
+            }
+            p++;
+        }
+
+        if (*p != '\0') {
+            *p = '\0';
+            p++;
+        }
     }
+
     return argc;
 }
 
@@ -177,7 +204,7 @@ int main(int argc, char *argv[]) {
             GREEN,                 
             current_dir,           // Workingdir
             RESET);
-    
+
         char input[128];
         if(fgets(input, 128, stdin) == NULL) {
             return 1;
@@ -201,10 +228,16 @@ int main(int argc, char *argv[]) {
                 }
 
                 if(cargc == 1) {
-                    target_dir = pw->pw_dir;
+                    target_dir = getenv("HOME");
+                    if(target_dir == NULL) {
+                        target_dir = pw->pw_dir;
+                    }
                 } else if(cargc == 2) {
                     if(strcmp("~", cargv[1]) == 0) {
-                        target_dir = pw->pw_dir;
+                        target_dir = getenv("HOME");
+                        if(target_dir == NULL) {
+                            target_dir = pw->pw_dir;
+                        }
                     } else {
                         target_dir = cargv[1];
                     }        
