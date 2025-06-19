@@ -14,7 +14,17 @@
 
 #define MAX_NUM_ARGS 32
 
+#define RED     "\x1b[1;31m"
+#define GREEN   "\x1b[1;32m"
+#define BLUE    "\x1b[1;34m"
+#define RESET   "\x1b[0m"
+
 #define ARRAY_LEN(x) (sizeof(x) / sizeof((x)[0]))
+
+static const char* builtins[] = {
+    "cd", "pwd", "echo", "exit", "type"
+};
+static const int num_builtins = ARRAY_LEN(builtins);
 
 int tokenize(char* input, char* argv[]) {
     int argc = 0;
@@ -27,14 +37,18 @@ int tokenize(char* input, char* argv[]) {
 }
 
 enum Command {
-    CMD_TYPE,
+    CMD_CD,
+    CMD_PWD,
     CMD_ECHO,
     CMD_EXIT,
-
+    CMD_TYPE,
+    
     CMD_EXECUTABLE
 };
 
 enum Command parse_command(const char* command) {
+    if(!strcmp(command, "cd")) return CMD_CD;  
+    if(!strcmp(command, "pwd")) return CMD_PWD;
     if(!strcmp(command, "type")) return CMD_TYPE;
     if(!strcmp(command, "echo")) return CMD_ECHO;
     if(!strcmp(command, "exit")) return CMD_EXIT;
@@ -42,14 +56,14 @@ enum Command parse_command(const char* command) {
     return CMD_EXECUTABLE;
 }
 
-int is_builtin(char* arg, char* builtins[], int num_builtins) {
+int is_builtin(char* arg) {
     for (int i = 0; i < num_builtins; i++) {
         if(!strcmp(arg, builtins[i]))
             return 1;
     }
     return 0;
 }
-
+// Search 
 int is_executable(char* arg, char full_path[], char* paths[], int num_paths) {
 
     for(int i = 0; i < num_paths; i++) {
@@ -112,8 +126,7 @@ void execute_cmd(char** args) {
             if (write(STDOUT_FILENO, &buf, 1) != 1)
                 err(EXIT_FAILURE, "write");
         }
-        //if (write(STDOUT_FILENO, "\n", 1) != 1)
-        //    err(EXIT_FAILURE, "write");
+    
         if (close(pipefd[0]) == -1)
             err(EXIT_FAILURE, "close");
         if (wait(NULL) == -1)        /* Wait for child */
@@ -123,11 +136,6 @@ void execute_cmd(char** args) {
 
 int main(int argc, char *argv[]) {
     setbuf(stdout, NULL);   
-
-    char* builtins[] = {
-        "echo", "exit", "type"
-    };
-    int num_builtins = ARRAY_LEN(builtins);
 
     char* orgPath;
     if ((orgPath = getenv("PATH")) == NULL)
@@ -152,34 +160,67 @@ int main(int argc, char *argv[]) {
     
 
     while(1) {
-        //struct passwd *pw = getpwuid(geteuid());
-        //if(pw == NULL) {
-        //    err(EXIT_FAILURE, "getpwuid");
-        //}
-//
-        //char hostname[64];
-        //char current_dir[64];
-        //gethostname(hostname, 64);
-        //getcwd(current_dir, 64);
-//
-        //printf("%s@%s:%s$ ", pw->pw_name, hostname, current_dir);
-        printf("$ ");
+        struct passwd *pw = getpwuid(geteuid());
+        if(pw == NULL) {
+            err(EXIT_FAILURE, "getpwuid");
+        }
+
+        char hostname[64];
+        char current_dir[64];
+        gethostname(hostname, 64);
+        getcwd(current_dir, 64);
+
+        printf("%s%s@%s%s:%s%s%s$ ", 
+            BLUE, 
+            pw->pw_name, hostname, // User@Hostname
+            RESET,
+            GREEN,                 
+            current_dir,           // Workingdir
+            RESET);
     
         char input[128];
         if(fgets(input, 128, stdin) == NULL) {
             return 1;
         }
+        if(strlen(input) <= 1)
+            continue;
         input[strlen(input) - 1] = '\0';
 
         char* cargv[MAX_NUM_ARGS];
         int cargc = tokenize(input, cargv);
 
         enum Command cmd = parse_command(cargv[0]);
-
         switch (cmd) 
         {
+            case CMD_CD:
+                char *target_dir = NULL;
+
+                if(cargc > 2) {
+                    fprintf(stderr, "Usage: cd [dir]\n");
+                    break;
+                }
+
+                if(cargc == 1) {
+                    target_dir = pw->pw_dir;
+                } else if(cargc == 2) {
+                    if(strcmp("~", cargv[1]) == 0) {
+                        target_dir = pw->pw_dir;
+                    } else {
+                        target_dir = cargv[1];
+                    }        
+                }
+                
+                if(chdir(target_dir) != 0) {
+                    fprintf(stderr, "cd: %s: ", cargv[1]);
+                    perror("");
+                }
+                break;
+            case CMD_PWD:
+                printf("%s\n", current_dir);
+                break;
+
             case CMD_TYPE:
-                if(is_builtin(cargv[1], builtins, num_builtins)) {
+                if(is_builtin(cargv[1])) {
                     printf("%s is a shell builtin\n", cargv[1]);
                     break;
                 }
@@ -190,10 +231,10 @@ int main(int argc, char *argv[]) {
                     printf("%s is %s\n", cargv[1], full_path);
                 }
                 else if(ret == 0) {
-                    printf("%s: not found\n", cargv[1]);
+                    fprintf(stderr, "%s: not found\n", cargv[1]);
                 }
                 else {
-                    printf("READ_ERROR\n");
+                    fprintf(stderr, "READ_ERROR\n");
                 }
 
                 break;
