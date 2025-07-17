@@ -1,67 +1,23 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <dirent.h>
 #include <sys/types.h>
-#include <errno.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <errno.h>
 #include <err.h>
 #include <pwd.h>
 #include <ctype.h>
+#include <dirent.h>
+
+#include "token.h"
+#include "misc.h"
 
 #define MAX_NUMBER_OF_PATH 32
 #define MAX_PATH_LENGTH 256
 
 #define MAX_NUM_ARGS 32
-
-#define RED     "\x1b[1;31m"
-#define GREEN   "\x1b[1;32m"
-#define BLUE    "\x1b[1;34m"
-#define RESET   "\x1b[0m"
-
-#define ARRAY_LEN(x) (sizeof(x) / sizeof((x)[0]))
-
-static const char* builtins[] = {
-    "cd", "pwd", "echo", "exit", "type"
-};
-static const int num_builtins = ARRAY_LEN(builtins);
-
-int tokenize(char* input, char* argv[]) {
-    int argc = 0;
-    char* p = input;
-
-    while (*p != '\0') {
-        while (isspace((unsigned char)*p)) {
-            p++;
-        }
-        if (*p == '\0') {
-            break;
-        }
-
-        argv[argc++] = p;
-
-        int is_sq = 0;
-        while (*p != '\0') {
-            if(*p == '\'') {
-                is_sq = !is_sq;
-                memmove(p, p + 1, strlen(p + 1) + 1);
-                continue;
-            }
-            if(!is_sq && isspace((unsigned char)*p)) {
-                break;
-            }
-            p++;
-        }
-
-        if (*p != '\0') {
-            *p = '\0';
-            p++;
-        }
-    }
-
-    return argc;
-}
+#define MAX_INPUT_SIZE 1024
 
 enum Command {
     CMD_CD,
@@ -197,21 +153,43 @@ int main(int argc, char *argv[]) {
         gethostname(hostname, 64);
         getcwd(current_dir, 64);
 
-        printf("%s%s@%s%s:%s%s%s$ ", 
-            BLUE, 
-            pw->pw_name, hostname, // User@Hostname
-            RESET,
-            GREEN,                 
-            current_dir,           // Workingdir
-            RESET);
+        //printf("%s%s@%s%s:%s%s%s$ ", 
+        //    BLUE, 
+        //    pw->pw_name, hostname, // User@Hostname
+        //    RESET,
+        //    GREEN,                 
+        //    current_dir,           // Workingdir
+        //    RESET);
+        printf("$ ");
 
-        char input[128];
-        if(fgets(input, 128, stdin) == NULL) {
+        char input[MAX_INPUT_SIZE];
+        if(fgets(input, MAX_INPUT_SIZE, stdin) == NULL) {
             return 1;
         }
         if(strlen(input) <= 1)
             continue;
+
         input[strlen(input) - 1] = '\0';
+
+        int quote_count = count_char(input, '\'');
+        char* input_p = input + strlen(input);
+        while(quote_count % 2 == 1 && strlen(input) < MAX_INPUT_SIZE - 3) {
+            *(input_p - 1) = '\n';
+            printf("> ");
+
+            if(fgets(input_p, MAX_INPUT_SIZE - strlen(input), stdin) == NULL) {
+                perror("fgets");
+                return 1;
+            }
+            if(strlen(input_p) <= 1) {
+                continue;
+            }
+            input_p[strlen(input_p) - 1] = '\0';
+
+            quote_count += count_char(input_p, '\'');
+            input_p = input_p + strlen(input_p);
+        }
+        
 
         char* cargv[MAX_NUM_ARGS];
         int cargc = tokenize(input, cargv);
@@ -281,7 +259,16 @@ int main(int argc, char *argv[]) {
                 break;
             
             case CMD_EXIT:
-                exit(strtol(cargv[1], NULL, 10));
+                if (cargc > 2)
+                {
+                    fprintf(stderr, "yash: exit: too many arguments\n");
+                    break;
+                }
+                else if (cargc == 2)
+                {
+                    exit(strtol(cargv[1], NULL, 10));
+                }
+                exit(EXIT_SUCCESS);
             
             case CMD_EXECUTABLE:        
                 cargv[cargc] = NULL;
@@ -289,10 +276,12 @@ int main(int argc, char *argv[]) {
                 break;
 
             default:
-                printf("%s: command not found\n", cargv[0]);
+                fprintf(stderr, "%s: command not found\n", cargv[0]);
                 break;
         }
     }
     
     return 0;
 }
+// Double Quotes
+// Wrapping error messages with macros
