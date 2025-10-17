@@ -1,4 +1,4 @@
-#ifndef MISC_h
+#ifndef MISC_H
 #define MISC_H
 
 #define RED     "\x1b[1;31m"

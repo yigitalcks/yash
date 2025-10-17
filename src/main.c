@@ -12,12 +12,13 @@
 
 #include "token.h"
 #include "misc.h"
+#include "cmd/type.h"
 
 #define MAX_NUMBER_OF_PATH 32
-#define MAX_PATH_LENGTH 256
 
 #define MAX_NUM_ARGS 32
 #define MAX_INPUT_SIZE 1024
+#define MAX_CD_SUBS_PATH 256
 
 enum Command {
     CMD_CD,
@@ -39,44 +40,10 @@ enum Command parse_command(const char* command) {
     return CMD_EXECUTABLE;
 }
 
-int is_builtin(char* arg) {
-    for (int i = 0; i < num_builtins; i++) {
-        if(!strcmp(arg, builtins[i]))
-            return 1;
-    }
-    return 0;
-}
-// Search 
-int is_executable(char* arg, char full_path[], char* paths[], int num_paths) {
-
-    for(int i = 0; i < num_paths; i++) {
-        DIR* dirp = opendir(paths[i]);
-        if (!dirp) {
-            continue;
-        }
-
-        errno = 0;
-        struct dirent* dp;
-        while ((dp = readdir(dirp)) != NULL) {
-            if(!strcmp(dp->d_name, arg)) {
-                snprintf(full_path, MAX_PATH_LENGTH, "%s/%s", paths[i], arg);
-                closedir(dirp);
-                return 1; // FOUND
-            } 
-        }
-        if (errno != 0) {
-            closedir(dirp);
-            return -1; // READ_ERROR
-        }
-
-        closedir(dirp);
-    }
-    return 0; // NOT_FOUND
-}
-
 void execute_cmd(char** args) {
     int pipefd[2];
     char buf;
+
     if (pipe(pipefd) == -1)
         err(EXIT_FAILURE, "pipe");
 
@@ -153,14 +120,14 @@ int main(int argc, char *argv[]) {
         gethostname(hostname, 64);
         getcwd(current_dir, 64);
 
-        //printf("%s%s@%s%s:%s%s%s$ ", 
-        //    BLUE, 
-        //    pw->pw_name, hostname, // User@Hostname
-        //    RESET,
-        //    GREEN,                 
-        //    current_dir,           // Workingdir
-        //    RESET);
-        printf("$ ");
+        printf("%s%s@%s%s:%s%s%s$ ", 
+            BLUE, 
+            pw->pw_name, hostname, // User@Hostname
+            RESET,
+            GREEN,                 
+            current_dir,           // Workingdir
+            RESET);
+        //printf("$ ");
 
         char input[MAX_INPUT_SIZE];
         if(fgets(input, MAX_INPUT_SIZE, stdin) == NULL) {
@@ -205,18 +172,34 @@ int main(int argc, char *argv[]) {
                     break;
                 }
 
+                char subs_path[MAX_CD_SUBS_PATH];
                 if(cargc == 1) {
                     target_dir = getenv("HOME");
                     if(target_dir == NULL) {
                         target_dir = pw->pw_dir;
                     }
                 } else if(cargc == 2) {
-                    if(strcmp("~", cargv[1]) == 0) {
-                        target_dir = getenv("HOME");
-                        if(target_dir == NULL) {
-                            target_dir = pw->pw_dir;
+                    char* tilde_pos = strstr(cargv[1], "~");
+                    if (tilde_pos != NULL) {
+                        char* home_dir = getenv("HOME");
+                        
+                        char* left = cargv[1];
+                        char* right = tilde_pos + 1;
+
+                        if (tilde_pos == left) {
+                            left = "";
+                        } else if (*right == '\0') {
+                            right = "";
+                            *tilde_pos = '\0';
+                        } else {
+                            *tilde_pos = '\0';
                         }
-                    } else {
+                        
+                        snprintf(subs_path, MAX_CD_SUBS_PATH, "%s%s%s", left, home_dir, right);
+                        target_dir = subs_path;
+                    }
+                    
+                    else {
                         target_dir = cargv[1];
                     }        
                 }
@@ -236,10 +219,10 @@ int main(int argc, char *argv[]) {
                     break;
                 }
 
-                char full_path[MAX_PATH_LENGTH];
-                int ret = is_executable(cargv[1], full_path, paths, num_paths);
+                char target[MAX_PATH_LENGTH];
+                int ret = is_executable(cargv[1], target, paths, num_paths);
                 if (ret == 1) {
-                    printf("%s is %s\n", cargv[1], full_path);
+                    printf("%s is %s\n", cargv[1], target);
                 }
                 else if(ret == 0) {
                     fprintf(stderr, "%s: not found\n", cargv[1]);
